@@ -10,7 +10,7 @@ import { db } from './infrastructure/db.js';
 import { createDrizzleSlaSampleRepository } from './infrastructure/sla-sample-repository.js';
 import { registerScheduledTasks, scheduledTasks } from './scheduling/index.js';
 import { createAppContext } from './app-context.js';
-import { tenantScopeFastifyPlugin } from './api/plugins/tenant-scope.plugin.js';
+import { registerTenantScopeHook } from './api/hooks/tenant-scope.hook.js';
 import { lastMileFulfilmentRoutesPlugin } from './api/routes/last-mile-fulfilments/index.js';
 import { LastMileFulfilmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-created.schema.js';
 
@@ -34,8 +34,8 @@ async function buildServer() {
   });
 
   // Nest tenant context onto the Scope ALS for requests carrying `x-tenant-id`.
-  // Depends on the framework plugin's Scope being in place first.
-  await server.register(tenantScopeFastifyPlugin);
+  // Must run after the framework plugin's onRequest (which sets the base Scope).
+  registerTenantScopeHook(server);
 
   // Register reusable TypeBox schemas so they show up under
   // `components.schemas` in the generated OpenAPI document.

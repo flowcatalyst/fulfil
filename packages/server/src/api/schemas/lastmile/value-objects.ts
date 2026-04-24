@@ -5,7 +5,6 @@ import {
   ParcelStatusSchema,
   ParcelTypeSchema,
   SourceNoteTypeSchema,
-  TemperatureZoneSchema,
   UnitOfMeasureSchema,
 } from './common.js';
 
