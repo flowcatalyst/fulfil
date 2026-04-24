@@ -9,6 +9,10 @@ import {
 import { db } from './infrastructure/db.js';
 import { createDrizzleSlaSampleRepository } from './infrastructure/sla-sample-repository.js';
 import { registerScheduledTasks, scheduledTasks } from './scheduling/index.js';
+import { createAppContext } from './app-context.js';
+import { tenantScopeFastifyPlugin } from './api/plugins/tenant-scope.plugin.js';
+import { lastMileFulfilmentRoutesPlugin } from './api/routes/last-mile-fulfilments/index.js';
+import { LastMileFulfilmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-created.schema.js';
 
 async function buildServer() {
   const server = Fastify({
@@ -17,17 +21,25 @@ async function buildServer() {
     },
   }).withTypeProvider<TypeBoxTypeProvider>();
 
-  // Framework plugin: scope propagation, SLA tracking, Prometheus metrics
+  // Framework plugin: scope propagation, SLA tracking, Prometheus metrics.
   await server.register(frameworkFastifyPlugin, {
     slaTracker: createSlaTracker([]),
     slaSampleRepository: createDrizzleSlaSampleRepository(db),
     extractRequestToken: (req) => {
-      // TODO: extract from OIDC token once auth middleware is added
+      // TODO(auth): extract from OIDC token once real auth middleware is added.
       const sub = req.headers['x-user-id'];
       if (typeof sub !== 'string') return null;
       return { sub };
     },
   });
+
+  // Nest tenant context onto the Scope ALS for requests carrying `x-tenant-id`.
+  // Depends on the framework plugin's Scope being in place first.
+  await server.register(tenantScopeFastifyPlugin);
+
+  // Register reusable TypeBox schemas so they show up under
+  // `components.schemas` in the generated OpenAPI document.
+  server.addSchema(LastMileFulfilmentCreatedEventDataSchema);
 
   await server.register(fastifySwagger, {
     openapi: {
@@ -35,6 +47,13 @@ async function buildServer() {
         title: 'Fulfil Logistics API',
         version: '0.0.1',
       },
+      tags: [
+        {
+          name: 'LastMile',
+          description:
+            'Last-mile fulfilment aggregates and shipments. One fulfilment per upstream source note; shipments are created by planning.',
+        },
+      ],
     },
   });
 
@@ -42,7 +61,16 @@ async function buildServer() {
     routePrefix: '/docs',
   });
 
-  // Health check
+  // Composition root — repositories, UnitOfWork, use cases, aggregate registry.
+  const appContext = createAppContext({
+    db,
+    clientId: process.env['FLOWCATALYST_CLIENT_ID'] ?? 'fulfil-server',
+  });
+
+  // Domain route plugins.
+  await server.register(lastMileFulfilmentRoutesPlugin, { appContext });
+
+  // Health check.
   server.get('/health', async () => ({ status: 'ok' }));
 
   return server;

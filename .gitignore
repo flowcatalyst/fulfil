@@ -7,3 +7,4 @@ coverage/
 *.tsbuildinfo
 drizzle/meta/
 .DS_Store
+.idea/
