@@ -10,51 +10,19 @@ import {
   UnitOfMeasure,
 } from '@fulfil/shared';
 
-// ─── Reusable helpers ───────────────────────────────────────────────────────
+// ─── Catalog enum schemas (TypeBox mirrors of shared domain catalogs) ───────
+// `Type.Enum` accepts a const-asserted object and produces a schema whose
+// Static type is the precise union of the catalog's values. This is what we
+// want — losing the literals would degrade route body types to `string`.
 
-/**
- * Build a TypeBox union over the string values of a const catalog.
- * `Type.Enum` trips over const-asserted objects in some TypeBox versions, so
- * we build the union explicitly and export the schema with a stable name for
- * OpenAPI components registration.
- */
-function literalUnion<const T extends readonly string[]>(values: T) {
-  return Type.Union(values.map((v) => Type.Literal(v)));
-}
-
-// ─── Catalog unions (TypeBox mirrors of shared domain catalogs) ─────────────
-
-export const SourceNoteTypeSchema = literalUnion(
-  Object.values(SourceNoteType) as readonly string[],
-);
-
-export const TemperatureZoneSchema = literalUnion(
-  Object.values(TemperatureZone) as readonly string[],
-);
-
-export const HandlingFlagSchema = literalUnion(
-  Object.values(HandlingFlag) as readonly string[],
-);
-
-export const ParcelTypeSchema = literalUnion(
-  Object.values(ParcelType) as readonly string[],
-);
-
-export const ParcelStatusSchema = literalUnion(
-  Object.values(ParcelStatus) as readonly string[],
-);
-
-export const UnitOfMeasureSchema = literalUnion(
-  Object.values(UnitOfMeasure) as readonly string[],
-);
-
-export const FailureReasonSchema = literalUnion(
-  Object.values(FailureReason) as readonly string[],
-);
-
-export const LastMileStageSchema = literalUnion(
-  Object.values(LastMileStage) as readonly string[],
-);
+export const SourceNoteTypeSchema = Type.Enum(SourceNoteType);
+export const TemperatureZoneSchema = Type.Enum(TemperatureZone);
+export const HandlingFlagSchema = Type.Enum(HandlingFlag);
+export const ParcelTypeSchema = Type.Enum(ParcelType);
+export const ParcelStatusSchema = Type.Enum(ParcelStatus);
+export const UnitOfMeasureSchema = Type.Enum(UnitOfMeasure);
+export const FailureReasonSchema = Type.Enum(FailureReason);
+export const LastMileStageSchema = Type.Enum(LastMileStage);
 
 // ─── Opaque passthrough metadata ────────────────────────────────────────────
 

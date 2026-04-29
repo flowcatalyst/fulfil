@@ -140,6 +140,24 @@ export class CreateLastMileFulfilmentUseCase extends usecase.SecuredUseCase<
     }
     const tenantId = asTenantId(scope.tenant.tenantId);
 
+    // Cross-field shape rules — JSON Schema at the wire can't express these,
+    // so they live here alongside the other business invariants.
+    if (command.promisedWindow.end <= command.promisedWindow.start) {
+      return UseCaseError.validation(
+        'PROMISED_WINDOW_INVALID',
+        'promisedWindow.end must be after promisedWindow.start.',
+      );
+    }
+    if (command.collection.collectionWindow) {
+      const cw = command.collection.collectionWindow;
+      if (cw.end <= cw.start) {
+        return UseCaseError.validation(
+          'COLLECTION_WINDOW_INVALID',
+          'collection.collectionWindow.end must be after collection.collectionWindow.start.',
+        );
+      }
+    }
+
     const existing = await this.fulfilments.findActiveBySourceNote(
       tenantId,
       command.sourceNote.system,
