@@ -5,6 +5,7 @@ import {
   LastMileStage,
   ParcelStatus,
   ParcelType,
+  ShipmentStatus,
   SourceNoteType,
   TemperatureZone,
   UnitOfMeasure,
@@ -23,6 +24,7 @@ export const ParcelStatusSchema = Type.Enum(ParcelStatus);
 export const UnitOfMeasureSchema = Type.Enum(UnitOfMeasure);
 export const FailureReasonSchema = Type.Enum(FailureReason);
 export const LastMileStageSchema = Type.Enum(LastMileStage);
+export const ShipmentStatusSchema = Type.Enum(ShipmentStatus);
 
 // ─── Opaque passthrough metadata ────────────────────────────────────────────
 
@@ -47,13 +49,14 @@ export const ErrorResponseSchema = Type.Object(
   {
     error: Type.Object(
       {
+        // Matches Effect-side `error._tag` — the SDK's `Data.TaggedError` brand.
         type: Type.Union([
-          Type.Literal('validation'),
-          Type.Literal('authorization'),
-          Type.Literal('not_found'),
-          Type.Literal('business_rule'),
-          Type.Literal('concurrency'),
-          Type.Literal('infrastructure'),
+          Type.Literal('ValidationError'),
+          Type.Literal('AuthorizationError'),
+          Type.Literal('NotFoundError'),
+          Type.Literal('BusinessRuleViolation'),
+          Type.Literal('ConcurrencyError'),
+          Type.Literal('InfrastructureError'),
         ]),
         code: Type.String(),
         message: Type.String(),

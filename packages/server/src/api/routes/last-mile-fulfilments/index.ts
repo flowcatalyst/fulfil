@@ -14,8 +14,5 @@ export async function lastMileFulfilmentRoutesPlugin(
   fastify: FastifyInstance,
   opts: LastMileFulfilmentRoutesOptions,
 ): Promise<void> {
-  registerCreateLastMileFulfilmentRoute(
-    fastify,
-    opts.appContext.useCases.createLastMileFulfilment,
-  );
+  registerCreateLastMileFulfilmentRoute(fastify, opts.appContext);
 }

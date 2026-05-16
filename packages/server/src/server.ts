@@ -12,7 +12,11 @@ import { registerScheduledTasks, scheduledTasks } from './scheduling/index.js';
 import { createAppContext } from './app-context.js';
 import { registerTenantScopeHook } from './api/hooks/tenant-scope.hook.js';
 import { lastMileFulfilmentRoutesPlugin } from './api/routes/last-mile-fulfilments/index.js';
+import { lastMileShipmentRoutesPlugin } from './api/routes/last-mile-shipments/index.js';
+import { reactorRoutesPlugin } from './api/routes/reactors/index.js';
 import { LastMileFulfilmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-created.schema.js';
+import { LastMileShipmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-created.schema.js';
+import { LastMileFulfilmentShipmentRequestedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-requested.schema.js';
 
 async function buildServer() {
   const server = Fastify({
@@ -34,12 +38,13 @@ async function buildServer() {
   });
 
   // Nest tenant context onto the Scope ALS for requests carrying `x-tenant-id`.
-  // Must run after the framework plugin's onRequest (which sets the base Scope).
   registerTenantScopeHook(server);
 
-  // Register reusable TypeBox schemas so they show up under
+  // Register reusable TypeBox event-data schemas so they show up under
   // `components.schemas` in the generated OpenAPI document.
   server.addSchema(LastMileFulfilmentCreatedEventDataSchema);
+  server.addSchema(LastMileShipmentCreatedEventDataSchema);
+  server.addSchema(LastMileFulfilmentShipmentRequestedEventDataSchema);
 
   await server.register(fastifySwagger, {
     openapi: {
@@ -53,6 +58,11 @@ async function buildServer() {
           description:
             'Last-mile fulfilment aggregates and shipments. One fulfilment per upstream source note; shipments are created by planning.',
         },
+        {
+          name: 'Reactors',
+          description:
+            'Inbound webhooks called by FlowCatalyst when events fire. Each reactor reacts to one event type.',
+        },
       ],
     },
   });
@@ -61,14 +71,20 @@ async function buildServer() {
     routePrefix: '/docs',
   });
 
-  // Composition root — repositories, UnitOfWork, use cases, aggregate registry.
+  // Composition root.
   const appContext = createAppContext({
     db,
-    clientId: process.env['FLOWCATALYST_CLIENT_ID'] ?? 'fulfil-server',
+    clientId: process.env['FLOWCATALYST_CLIENT_ID'] ?? 'fulfil',
+    publicBaseUrl:
+      process.env['FULFIL_PUBLIC_BASE_URL'] ?? 'http://localhost:3000',
+    dispatchPoolCode:
+      process.env['FULFIL_DISPATCH_POOL'] ?? 'fulfil-default',
   });
 
-  // Domain route plugins.
+  // Domain + reactor routes.
   await server.register(lastMileFulfilmentRoutesPlugin, { appContext });
+  await server.register(lastMileShipmentRoutesPlugin, { appContext });
+  await server.register(reactorRoutesPlugin, { appContext });
 
   // Health check.
   server.get('/health', async () => ({ status: 'ok' }));

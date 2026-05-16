@@ -1,11 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { Result, ScopeStore } from '@fulfil/framework';
+import { Result } from 'effect';
+import { ScopeStore } from '@fulfil/framework';
 import {
   TemperatureZone,
   type CreateLastMileFulfilmentCommand,
 } from '@fulfil/shared';
 
-import type { CreateLastMileFulfilmentUseCase } from '../../../operations/create-last-mile-fulfilment/create-last-mile-fulfilment.use-case.js';
+import type { AppContext } from '../../../app-context.js';
 import { sendUseCaseError } from '../../plugins/error-mapper.js';
 import {
   CreateLastMileFulfilmentRouteSchema,
@@ -22,32 +23,36 @@ import {
  *      defaults like `revision: 1`).
  *   2. `bodyToCommand` adapts the validated wire body into the use case's
  *      command shape — converts ISO `date-time` strings to `Date` objects
- *      and supplies defaults the wire schema doesn't (e.g. `temperatureZone`).
+ *      and supplies defaults the wire schema doesn't.
  *   3. The use case enforces business rules (uniqueness, window-after-now,
  *      end-after-start, line/parcel invariants) and commits via UnitOfWork.
- *   4. `Result` is mapped to HTTP: success → 201 with a summary, failure →
- *      the appropriate 4xx/5xx via `sendUseCaseError`.
+ *   4. `appContext.runWrite` opens a Drizzle tx, provides UoW/Registry/Ctx
+ *      layers, and surfaces the result as `Either<UseCaseError, Sealed<E>>`.
+ *   5. The Either is mapped to HTTP: Right → 201 + summary, Left → 4xx/5xx
+ *      via `sendUseCaseError`.
  */
 export function registerCreateLastMileFulfilmentRoute(
   fastify: FastifyInstance,
-  useCase: CreateLastMileFulfilmentUseCase,
+  appContext: AppContext,
 ): void {
   fastify.post<{ Body: CreateLastMileFulfilmentBody }>(
     '/fulfilments',
     { schema: CreateLastMileFulfilmentRouteSchema },
     async (request, reply) => {
       const command = bodyToCommand(request.body);
-
-      // SecuredUseCase takes an ExecutionContext; our Scope is structurally
-      // compatible (ExecutionContext's 5 fields are a subset of Scope's).
       const scope = ScopeStore.require();
-      const result = await useCase.execute(command, scope);
+
+      const result = await appContext.runWrite(
+        appContext.useCases.createLastMileFulfilment.execute(command),
+        scope,
+      );
 
       if (Result.isFailure(result)) {
-        return sendUseCaseError(reply, result.error);
+        return sendUseCaseError(reply, result.failure);
       }
 
-      const data = result.value.getData();
+      const event = result.success.event;
+      const data = event.getData();
       const body: CreateLastMileFulfilmentResponse = {
         fulfilmentId: data.fulfilmentId,
         tenantId: data.tenantId,
@@ -57,7 +62,7 @@ export function registerCreateLastMileFulfilmentRoute(
           start: data.promisedWindow.start.toISOString(),
           end: data.promisedWindow.end.toISOString(),
         },
-        createdAt: result.value.time.toISOString(),
+        createdAt: event.time.toISOString(),
       };
       return reply.code(201).send(body);
     },
@@ -74,8 +79,8 @@ export function registerCreateLastMileFulfilmentRoute(
  *   `metadata`, `sourceNote.revision`, `dropOff.access`, parcel
  *   `lineRefs`/`status`/`metadata`, and line `metadata`.
  *
- * Cross-field semantics (`end > start`) are enforced in the use case's
- * `validate()` — this adapter is shape-only.
+ * Cross-field semantics (`end > start`) are enforced in the use case —
+ * this adapter is shape-only.
  */
 function bodyToCommand(
   body: CreateLastMileFulfilmentBody,

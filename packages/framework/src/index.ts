@@ -1,5 +1,3 @@
-import { usecase } from '@flowcatalyst/sdk';
-
 // Scope
 export { Scope, ScopeStore } from './scope/index.js';
 export type {
@@ -13,39 +11,32 @@ export type {
   SqlAuditContext,
 } from './scope/index.js';
 
-// Use case infrastructure — re-exported from @flowcatalyst/sdk's usecase namespace
-// so consumers can continue importing from @fulfil/framework.
-export const Result = usecase.Result;
-export const isSuccess = usecase.isSuccess;
-export const isFailure = usecase.isFailure;
-export const UseCaseError = usecase.UseCaseError;
-export const DomainEvent = usecase.DomainEvent;
-export const BaseDomainEvent = usecase.BaseDomainEvent;
-export const ExecutionContext = usecase.ExecutionContext;
-export const SecuredUseCase = usecase.SecuredUseCase;
-export const OutboxUnitOfWork = usecase.OutboxUnitOfWork;
-
-export type Result<T> = usecase.Result<T>;
-export type Success<T> = usecase.Success<T>;
-export type Failure<T> = usecase.Failure<T>;
-export type UseCaseError = usecase.UseCaseError;
-export type UseCaseErrorBase = usecase.UseCaseErrorBase;
-export type ValidationError = usecase.ValidationError;
-export type NotFoundError = usecase.NotFoundError;
-export type BusinessRuleViolation = usecase.BusinessRuleViolation;
-export type ConcurrencyError = usecase.ConcurrencyError;
-export type AuthorizationError = usecase.AuthorizationError;
-export type InfrastructureError = usecase.InfrastructureError;
-export type DomainEvent = usecase.DomainEvent;
-export type DomainEventBase = usecase.DomainEventBase;
-export type ExecutionContext = usecase.ExecutionContext;
-export type Command = usecase.Command;
-export type UseCase<TCommand extends usecase.Command, TEvent extends usecase.DomainEvent> =
-  usecase.UseCase<TCommand, TEvent>;
-export type Aggregate = usecase.Aggregate;
-export type UnitOfWork = usecase.UnitOfWork;
-export type OutboxUnitOfWorkConfig = usecase.OutboxUnitOfWorkConfig;
-export type OutboxUnitOfWorkOptions = usecase.OutboxUnitOfWorkOptions;
+// Use-case primitives — re-exported from @flowcatalyst/sdk's Effect surface.
+// Single source of truth is the SDK; framework re-exports so consumers can keep
+// importing from @fulfil/framework.
+export {
+  UnitOfWork,
+  ExecutionContext,
+  ValidationError,
+  NotFoundError,
+  BusinessRuleViolation,
+  ConcurrencyError,
+  AuthorizationError,
+  InfrastructureError,
+  httpStatus,
+  DomainEvent,
+  BaseDomainEvent,
+  OutboxUnitOfWork,
+  TestUnitOfWork,
+} from '@flowcatalyst/sdk/effect/usecase';
+export type {
+  Sealed,
+  UseCaseError,
+  Command,
+  UseCase,
+  Aggregate,
+  DomainEventBase,
+} from '@flowcatalyst/sdk/effect/usecase';
 
 // Audit log
 export type { AuditLog, CreateAuditLogData } from './audit/audit-log.js';

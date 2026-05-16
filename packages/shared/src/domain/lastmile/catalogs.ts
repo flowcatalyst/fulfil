@@ -92,6 +92,25 @@ export const FailureReason = {
 export type FailureReason = (typeof FailureReason)[keyof typeof FailureReason];
 export const FailureReasonSchema = z.nativeEnum(FailureReason);
 
+// Shipment lifecycle. A shipment is born `unfinalised` from a fulfilment via
+// the reactor; goods-readiness moves it to `ready`; planning assigns it to a
+// trip → `planned`; then `in_transit` / `delivered` (or terminal failure /
+// cancellation / return). The Shipment aggregate owns this column; the
+// fulfilment's LinkedShipment mirrors it via the shipment-state reactor.
+export const ShipmentStatus = {
+  Unfinalised: 'unfinalised',
+  Ready: 'ready',
+  Planned: 'planned',
+  InTransit: 'in_transit',
+  Delivered: 'delivered',
+  Failed: 'failed',
+  Cancelled: 'cancelled',
+  Returned: 'returned',
+} as const;
+export type ShipmentStatus =
+  (typeof ShipmentStatus)[keyof typeof ShipmentStatus];
+export const ShipmentStatusSchema = z.nativeEnum(ShipmentStatus);
+
 // Fulfilment lifecycle stages. First-pass Create use case enters
 // `awaiting_planning`; other stages are reached via downstream use cases
 // (planning, shipment roll-up reactions, cancel/abort, etc.).

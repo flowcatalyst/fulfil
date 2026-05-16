@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "flowcatalyst:sync": "tsx scripts/sync-flowcatalyst.ts"
   },
   "dependencies": {
     "@fulfil/shared": "workspace:*",
@@ -24,14 +25,14 @@
     "@fastify/type-provider-typebox": "^6.1.0",
     "@sinclair/typebox": "^0.34.49",
     "zod": "^3.24.0",
-    "neverthrow": "^8.1.1",
-    "drizzle-orm": "1.0.0-beta.22",
+    "effect": "4.0.0-beta.66",
+    "drizzle-orm": "1.0.0-rc.1",
     "postgres": "^3.4.0",
     "croner": "^9.0.0"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
-    "drizzle-kit": "1.0.0-beta.23",
+    "drizzle-kit": "1.0.0-rc.1",
     "@types/node": "^24.0.0"
   }
 }

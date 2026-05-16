@@ -1,5 +1,5 @@
 import { BaseDomainEvent, DomainEvent } from '@fulfil/framework';
-import type { ExecutionContext } from '@fulfil/framework';
+import type { Scope } from '@fulfil/framework';
 import type {
   CollectionPoint,
   Consignee,
@@ -31,7 +31,11 @@ export interface LastMileFulfilmentCreatedData {
 }
 
 export class LastMileFulfilmentCreated extends BaseDomainEvent<LastMileFulfilmentCreatedData> {
-  constructor(ctx: ExecutionContext, data: LastMileFulfilmentCreatedData) {
+  // `scope: Scope` — Scope is structurally a superset of the SDK's neverthrow
+  // ExecutionContext interface (same 5 tracing fields), so it can be passed
+  // directly to `super`. The `as never` cast satisfies the SDK's effect-side
+  // export, which brands the same shape as an Effect Context.Service.
+  constructor(scope: Scope, data: LastMileFulfilmentCreatedData) {
     super(
       {
         eventType: DomainEvent.eventType(
@@ -53,7 +57,7 @@ export class LastMileFulfilmentCreated extends BaseDomainEvent<LastMileFulfilmen
           data.fulfilmentId,
         ),
       },
-      ctx,
+      scope as never,
       data,
     );
   }

@@ -11,6 +11,7 @@ export type LastMileFulfilmentId = string & {
 export type PromisedLineId = string & { readonly __brand: 'PromisedLineId' };
 export type ParcelId = string & { readonly __brand: 'ParcelId' };
 export type ShipmentId = string & { readonly __brand: 'ShipmentId' };
+export type TripId = string & { readonly __brand: 'TripId' };
 export type LocationId = string & { readonly __brand: 'LocationId' };
 export type CourierId = string & { readonly __brand: 'CourierId' };
 export type VehicleId = string & { readonly __brand: 'VehicleId' };
@@ -21,6 +22,7 @@ export const LAST_MILE_FULFILMENT_ID_PREFIX = 'lmf' as const;
 export const PROMISED_LINE_ID_PREFIX = 'pln' as const;
 export const PARCEL_ID_PREFIX = 'par' as const;
 export const SHIPMENT_ID_PREFIX = 'shp' as const;
+export const TRIP_ID_PREFIX = 'trp' as const;
 
 export function asTenantId(value: string): TenantId {
   return value as TenantId;
@@ -36,4 +38,7 @@ export function asParcelId(value: string): ParcelId {
 }
 export function asShipmentId(value: string): ShipmentId {
   return value as ShipmentId;
+}
+export function asTripId(value: string): TripId {
+  return value as TripId;
 }
