@@ -116,4 +116,19 @@ export const LastMileShipment = {
       updatedAt: input.now,
     };
   },
+
+  /**
+   * Transition `unfinalised → ready` once goods-availability is confirmed.
+   *
+   * Caller (the use case) validates the precondition that `status` is
+   * `unfinalised`; this helper just produces the next state.
+   */
+  markReady(shipment: LastMileShipment, now: Date): LastMileShipment {
+    return {
+      ...shipment,
+      status: ShipmentStatusCatalog.Ready,
+      version: shipment.version + 1,
+      updatedAt: now,
+    };
+  },
 } as const;

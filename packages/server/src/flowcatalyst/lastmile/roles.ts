@@ -24,6 +24,7 @@ export const lastMileRoles: readonly sync.RoleDefinition[] = [
       'fulfil:lastmile:fulfilment:plan',
       'fulfil:lastmile:shipment:assign',
       'fulfil:lastmile:shipment:reassign',
+      'fulfil:lastmile:shipment:mark-ready',
       'fulfil:lastmile:shipment:confirm-pickup',
       'fulfil:lastmile:shipment:confirm-delivery',
       'fulfil:lastmile:shipment:report-failure',

@@ -18,6 +18,7 @@ import { LastMileFulfilmentCreatedEventDataSchema } from './api/schemas/lastmile
 import { LastMileShipmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-created.schema.js';
 import { LastMileFulfilmentShipmentRequestedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-requested.schema.js';
 import { LastMileFulfilmentShipmentLinkedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-linked.schema.js';
+import { LastMileShipmentReadyEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-ready.schema.js';
 
 async function buildServer() {
   const server = Fastify({
@@ -47,6 +48,7 @@ async function buildServer() {
   server.addSchema(LastMileShipmentCreatedEventDataSchema);
   server.addSchema(LastMileFulfilmentShipmentRequestedEventDataSchema);
   server.addSchema(LastMileFulfilmentShipmentLinkedEventDataSchema);
+  server.addSchema(LastMileShipmentReadyEventDataSchema);
 
   await server.register(fastifySwagger, {
     openapi: {

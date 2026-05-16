@@ -33,4 +33,10 @@ export const lastMileEventTypes: readonly sync.EventTypeDefinition[] = [
     description:
       'Emitted when the shipment-created reactor appends a new shipment onto its parent fulfilment\'s `linkedShipments`, closing the fulfilment ↔ shipment loop.',
   },
+  {
+    code: 'fulfil:lastmile:shipment:ready',
+    name: 'LastMile Shipment Ready',
+    description:
+      'Emitted when a shipment transitions `unfinalised → ready` — goods are confirmed packed and the shipment is eligible to be planned onto a trip.',
+  },
 ];

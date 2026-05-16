@@ -39,6 +39,7 @@ import { CreateLastMileFulfilmentUseCase } from './operations/create-last-mile-f
 import { CreateLastMileShipmentUseCase } from './operations/create-last-mile-shipment/create-last-mile-shipment.use-case.js';
 import { HandleLastMileFulfilmentCreatedUseCase } from './operations/handle-last-mile-fulfilment-created/handle-last-mile-fulfilment-created.use-case.js';
 import { HandleLastMileShipmentCreatedUseCase } from './operations/handle-last-mile-shipment-created/handle-last-mile-shipment-created.use-case.js';
+import { MarkShipmentReadyUseCase } from './operations/mark-shipment-ready/mark-shipment-ready.use-case.js';
 
 /**
  * Composition root for the server. Wires the repository graph, the
@@ -65,6 +66,7 @@ export interface AppContext {
     readonly createLastMileShipment: CreateLastMileShipmentUseCase;
     readonly handleLastMileFulfilmentCreated: HandleLastMileFulfilmentCreatedUseCase;
     readonly handleLastMileShipmentCreated: HandleLastMileShipmentCreatedUseCase;
+    readonly markShipmentReady: MarkShipmentReadyUseCase;
   };
   /**
    * Run a use-case Effect inside a Drizzle transaction.
@@ -164,6 +166,7 @@ export function createAppContext(config: AppContextConfig): AppContext {
         lastMileFulfilmentRepo,
         lastMileShipmentRepo,
       ),
+      markShipmentReady: new MarkShipmentReadyUseCase(lastMileShipmentRepo),
     },
     runWrite,
   };
