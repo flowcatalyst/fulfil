@@ -27,4 +27,17 @@ export const lastMileSubscriptions = (
     timeoutSeconds: 30,
     dataOnly: true,
   },
+  {
+    code: 'last-mile-shipment-created-reactor',
+    name: 'LastMile Shipment Created Reactor',
+    description:
+      'Closes the fulfilment ↔ shipment loop: appends the new shipment onto its parent fulfilment\'s `linkedShipments` and clears the fulfilment\'s reaction bookkeeping.',
+    target: `${publicBaseUrl}/reactors/last-mile-shipment-created`,
+    eventTypes: [{ eventTypeCode: 'fulfil:lastmile:shipment:created' }],
+    dispatchPoolCode,
+    mode: 'BLOCK_ON_ERROR',
+    maxRetries: 5,
+    timeoutSeconds: 30,
+    dataOnly: true,
+  },
 ];

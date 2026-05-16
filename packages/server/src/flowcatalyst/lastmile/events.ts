@@ -27,4 +27,10 @@ export const lastMileEventTypes: readonly sync.EventTypeDefinition[] = [
     description:
       'Emitted when a LastMileShipment is born from a fulfilment with status `unfinalised`.',
   },
+  {
+    code: 'fulfil:lastmile:fulfilment:shipment-linked',
+    name: 'LastMile Fulfilment — Shipment Linked',
+    description:
+      'Emitted when the shipment-created reactor appends a new shipment onto its parent fulfilment\'s `linkedShipments`, closing the fulfilment ↔ shipment loop.',
+  },
 ];

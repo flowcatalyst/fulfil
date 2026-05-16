@@ -1,3 +1,4 @@
+import type { ShipmentStatus } from '@fulfil/shared';
 import type { ParcelId, PromisedLineId, ShipmentId } from './ids.js';
 
 /**
@@ -9,9 +10,8 @@ export interface LinkedShipment {
   readonly shipmentId: ShipmentId;
   readonly parcelIds: readonly ParcelId[];
   readonly lineIds: readonly PromisedLineId[];
-  // Last known shipment status, updated via shipment-level events.
-  // TODO: once Shipment aggregate exists, narrow to the ShipmentStatus catalog.
-  readonly status: string;
+  /** Last known shipment status, updated via shipment-level events. */
+  readonly status: ShipmentStatus;
   readonly outcome: 'delivered' | 'failed' | 'partial' | null;
   readonly linkedAt: Date;
 }

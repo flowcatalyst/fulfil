@@ -17,6 +17,7 @@ import type {
   LinkedShipment,
   ReactionBookkeeping,
 } from './state.js';
+import type { ShipmentId } from './ids.js';
 
 /**
  * LastMileFulfilment — the PM aggregate representing one source-note obligation.
@@ -124,5 +125,41 @@ export const LastMileFulfilment = {
       createdAt: input.now,
       updatedAt: input.now,
     };
+  },
+
+  /**
+   * Append a linked shipment, clear the reaction's `awaitingEventType` (the
+   * fulfilment is no longer waiting for this shipment to be born), record the
+   * handled event id for idempotency on retries, and bump the version.
+   *
+   * Caller is the `HandleLastMileShipmentCreated` reactor. Idempotency is
+   * enforced there too — `isShipmentLinked` must be false before calling.
+   */
+  linkShipment(
+    fulfilment: LastMileFulfilment,
+    linkedShipment: LinkedShipment,
+    handledEventId: string,
+    now: Date,
+  ): LastMileFulfilment {
+    return {
+      ...fulfilment,
+      linkedShipments: [...fulfilment.linkedShipments, linkedShipment],
+      reaction: {
+        awaitingEventType: null,
+        awaitingDeadline: null,
+        lastHandledEventId: handledEventId,
+        lastReactionAt: now,
+      },
+      version: fulfilment.version + 1,
+      updatedAt: now,
+    };
+  },
+
+  /** True when the given shipment is already in `linkedShipments` (idempotency). */
+  isShipmentLinked(
+    fulfilment: LastMileFulfilment,
+    shipmentId: ShipmentId,
+  ): boolean {
+    return fulfilment.linkedShipments.some((ls) => ls.shipmentId === shipmentId);
   },
 } as const;

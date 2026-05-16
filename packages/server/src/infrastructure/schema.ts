@@ -12,3 +12,8 @@ export type {
   NewLastMileFulfilmentRow,
   LastMileFulfilmentRow,
 } from './schema/last-mile-fulfilments.js';
+export { lastMileShipments } from './schema/last-mile-shipments.js';
+export type {
+  NewLastMileShipmentRow,
+  LastMileShipmentRow,
+} from './schema/last-mile-shipments.js';

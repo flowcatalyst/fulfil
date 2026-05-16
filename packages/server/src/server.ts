@@ -17,6 +17,7 @@ import { reactorRoutesPlugin } from './api/routes/reactors/index.js';
 import { LastMileFulfilmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-created.schema.js';
 import { LastMileShipmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-created.schema.js';
 import { LastMileFulfilmentShipmentRequestedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-requested.schema.js';
+import { LastMileFulfilmentShipmentLinkedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-linked.schema.js';
 
 async function buildServer() {
   const server = Fastify({
@@ -45,6 +46,7 @@ async function buildServer() {
   server.addSchema(LastMileFulfilmentCreatedEventDataSchema);
   server.addSchema(LastMileShipmentCreatedEventDataSchema);
   server.addSchema(LastMileFulfilmentShipmentRequestedEventDataSchema);
+  server.addSchema(LastMileFulfilmentShipmentLinkedEventDataSchema);
 
   await server.register(fastifySwagger, {
     openapi: {
