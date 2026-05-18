@@ -162,4 +162,30 @@ export const LastMileFulfilment = {
   ): boolean {
     return fulfilment.linkedShipments.some((ls) => ls.shipmentId === shipmentId);
   },
+
+  /**
+   * Record that the reactor parked the fulfilment waiting for `awaitingEventType`.
+   * Used by the fulfilment reactor when an operational precondition (e.g.
+   * geocoding) isn't yet met — the bookkeeping lets a sweeper / dashboard
+   * surface stuck items and lets a later reactor wake the fulfilment
+   * idempotently when the awaited event fires.
+   */
+  scheduleReaction(
+    fulfilment: LastMileFulfilment,
+    awaitingEventType: string,
+    handledEventId: string,
+    now: Date,
+  ): LastMileFulfilment {
+    return {
+      ...fulfilment,
+      reaction: {
+        awaitingEventType,
+        awaitingDeadline: null,
+        lastHandledEventId: handledEventId,
+        lastReactionAt: now,
+      },
+      version: fulfilment.version + 1,
+      updatedAt: now,
+    };
+  },
 } as const;

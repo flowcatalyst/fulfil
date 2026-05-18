@@ -485,6 +485,8 @@ const result = await ScopeStore.run(scope, () =>
 
 Subscriptions are sync'd with `dataOnly: true` — the webhook body is the event's `data` payload (no envelope). Platform metadata rides on `x-fc-*` headers.
 
+**Multi-branch reactors.** A reactor may return a *union* of sealed events — e.g. `HandleLastMileFulfilmentCreated` returns `Sealed<ShipmentRequested> | Sealed<AwaitingGeocoding>` depending on whether geo is set. The webhook response is a TypeBox discriminated union (`status: 'shipment-requested' | 'awaiting-geocoding'`); the route handler narrows via `event instanceof <EventClass>` to pick the right shape. The use case's R widens accordingly (the awaiting branch writes the fulfilment aggregate, so `AggregateRegistry` joins `UnitOfWork | DispatchJobBroker`).
+
 **HMAC verification.** Every `/reactors/*` request is verified by `flowcatalystWebhookAuthHook` (registered as a `preHandler` inside `reactorRoutesPlugin`):
 - Signing scheme: HMAC-SHA256 over `${X-FlowCatalyst-Timestamp}${rawBody}`, hex-encoded, sent as `X-FlowCatalyst-Signature`. Mirrors the Laravel SDK's `WebhookValidator`.
 - Tolerance: 300s past, 60s future grace.

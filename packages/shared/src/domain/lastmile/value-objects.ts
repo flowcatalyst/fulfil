@@ -90,7 +90,11 @@ export const CollectionPointSchema = z
     locationId: z.string().max(40).optional(),
     name: z.string().min(1).max(200),
     address: AddressSchema,
-    geo: GeoPointSchema,
+    // Geocoded lat/lng — optional at creation. The fulfilment reactor
+    // checks both ends; if either is missing, it transitions to
+    // `awaiting-geocoding` until a client-specific orchestrator (e.g.
+    // Pinpoint) supplies the coordinates.
+    geo: GeoPointSchema.optional(),
     dockRef: z.string().max(100).optional(),
     contact: ContactRefSchema.optional(),
     collectionWindow: timeWindow.optional(),
@@ -104,7 +108,7 @@ export const DropOffPointSchema = z
     locationId: z.string().max(40).optional(),
     name: z.string().min(1).max(200),
     address: AddressSchema,
-    geo: GeoPointSchema,
+    geo: GeoPointSchema.optional(),
     access: AccessConstraintsSchema.default({}),
     deliveryInstructions: z.string().max(2000).optional(),
     unattendedDeliveryAllowed: z.boolean(),

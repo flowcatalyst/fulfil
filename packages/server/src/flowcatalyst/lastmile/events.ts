@@ -39,4 +39,10 @@ export const lastMileEventTypes: readonly sync.EventTypeDefinition[] = [
     description:
       'Emitted when a shipment transitions `unfinalised → ready` — goods are confirmed packed and the shipment is eligible to be planned onto a trip.',
   },
+  {
+    code: 'fulfil:lastmile:fulfilment:awaiting-geocoding',
+    name: 'LastMile Fulfilment — Awaiting Geocoding',
+    description:
+      'Emitted when the fulfilment reactor finds one or both location legs lack `geo` coordinates and parks the fulfilment until a geocoding orchestrator (e.g. Pinpoint) supplies them.',
+  },
 ];

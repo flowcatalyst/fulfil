@@ -103,7 +103,8 @@ export const CollectionPointSchema = Type.Object(
     locationId: Type.Optional(Type.String({ maxLength: 40 })),
     name: Type.String({ minLength: 1, maxLength: 200 }),
     address: AddressSchema,
-    geo: GeoPointSchema,
+    // Optional at creation — reactor enqueues geocoding when missing.
+    geo: Type.Optional(GeoPointSchema),
     dockRef: Type.Optional(Type.String({ maxLength: 100 })),
     contact: Type.Optional(ContactRefSchema),
     collectionWindow: Type.Optional(TimeWindowSchema),
@@ -117,7 +118,7 @@ export const DropOffPointSchema = Type.Object(
     locationId: Type.Optional(Type.String({ maxLength: 40 })),
     name: Type.String({ minLength: 1, maxLength: 200 }),
     address: AddressSchema,
-    geo: GeoPointSchema,
+    geo: Type.Optional(GeoPointSchema),
     access: Type.Optional(AccessConstraintsSchema),
     deliveryInstructions: Type.Optional(Type.String({ maxLength: 2000 })),
     unattendedDeliveryAllowed: Type.Boolean(),

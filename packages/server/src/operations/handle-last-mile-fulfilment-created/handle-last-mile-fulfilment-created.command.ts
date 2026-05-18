@@ -1,17 +1,18 @@
 /**
  * Input for the fulfilment-created reactor.
  *
- * Carries only the two fields the reactor actually needs to identify the
- * fulfilment — it loads everything else from the repository to avoid trusting
- * the upstream event's payload (which may be stale by the time the dispatch
- * arrives) and to dodge branded-id mismatches between the wire shape and the
- * domain types.
+ * Carries only the two identifying fields plus `handledEventId` (for
+ * reaction-bookkeeping idempotency on the awaiting-geocoding branch). The
+ * reactor reads everything else (collection/dropOff geo, cargo) from the
+ * freshly-loaded fulfilment to avoid trusting stale upstream payloads.
  *
- * Subscription's `dataOnly: true` setting means FlowCatalyst POSTs only the
- * event data — platform envelope fields (eventId, correlationId, etc.) arrive
- * via HTTP headers and are handled in the route, not the use case.
+ * Subscription's `dataOnly: true` setting means FlowCatalyst POSTs only
+ * the event data — platform envelope fields (eventId, correlationId)
+ * arrive via HTTP headers and are handled in the route.
  */
 export interface HandleLastMileFulfilmentCreatedInput {
   readonly fulfilmentId: string;
   readonly tenantId: string;
+  /** Originating event ID (from `x-fc-event-id`). Used as `reaction.lastHandledEventId` on the awaiting branch. */
+  readonly handledEventId?: string;
 }

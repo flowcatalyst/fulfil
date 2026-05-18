@@ -10,21 +10,27 @@ import {
 } from '@fulfil/framework';
 import type { CreateLastMileShipmentCommand } from '@fulfil/shared';
 
-import { DispatchJobBroker } from '../../infrastructure/unit-of-work.js';
+import {
+  AggregateRegistry,
+  commitAggregate,
+  DispatchJobBroker,
+} from '../../infrastructure/unit-of-work.js';
 import {
   asLastMileFulfilmentId,
   asTenantId,
 } from '../../domain/lastmile/ids.js';
+import { LastMileFulfilment } from '../../domain/lastmile/last-mile-fulfilment.js';
 import type { LastMileFulfilmentRepository } from '../../domain/lastmile/last-mile-fulfilment.repository.js';
 import { LastMileFulfilmentShipmentRequested } from '../../domain/lastmile/events/last-mile-fulfilment-shipment-requested.event.js';
+import { LastMileFulfilmentAwaitingGeocoding } from '../../domain/lastmile/events/last-mile-fulfilment-awaiting-geocoding.event.js';
 
 import type { HandleLastMileFulfilmentCreatedInput } from './handle-last-mile-fulfilment-created.command.js';
 
 export interface HandleLastMileFulfilmentCreatedConfig {
   /**
    * Public base URL of this Fulfil instance — used to construct the
-   * dispatch job's `targetUrl` (e.g. `${publicBaseUrl}/shipments`). Must
-   * be the address FlowCatalyst can reach from its dispatcher.
+   * dispatch job's `targetUrl` (`${publicBaseUrl}/shipments`). Must be
+   * reachable from FlowCatalyst's dispatcher.
    */
   readonly publicBaseUrl: string;
   /** Dispatch-pool code that handles `fulfil:lastmile:shipment:create` jobs. */
@@ -32,24 +38,34 @@ export interface HandleLastMileFulfilmentCreatedConfig {
 }
 
 /**
+ * Event-type marker the fulfilment is parked against while waiting for
+ * geocoding. A future reactor listens for the geocoding orchestrator's
+ * completion event and wakes the fulfilment (deferred — not in this slice).
+ */
+const AWAITING_GEOCODING_EVENT_TYPE =
+  'fulfil:lastmile:fulfilment:locations-geocoded';
+
+/** Union of events this reactor can seal. */
+export type ReactorOutcome =
+  | Sealed<LastMileFulfilmentShipmentRequested>
+  | Sealed<LastMileFulfilmentAwaitingGeocoding>;
+
+/**
  * Reactor for `LastMileFulfilmentCreated`.
  *
- * Decides whether the fulfilment is ready to spawn a shipment:
- *  - If both collection and drop-off `geo` are set → emit a dispatch job to
- *    `${publicBaseUrl}/shipments` carrying a `CreateLastMileShipment` command
- *    + emit `LastMileFulfilmentShipmentRequested` for audit.
- *  - Else → fail with `LOCATIONS_NOT_GEOCODED` (the schema currently requires
- *    geo, so this is a defensive guard. When geo becomes optional, this
- *    branch will instead emit a `LastMileFulfilmentAwaitingGeocoding` event
- *    and let a separate orchestrator — e.g. Pinpoint — produce
- *    `LocationsGeocoded`).
+ * Two branches:
+ *  1. **Both location ends are geocoded** → emit a `CreateLastMileShipment`
+ *     dispatch job to `${publicBaseUrl}/shipments`, plus the
+ *     `LastMileFulfilmentShipmentRequested` audit event.
+ *  2. **Either end lacks `geo`** → commit the fulfilment with
+ *     `reaction.awaitingEventType` set to the geocoding marker, and emit
+ *     `LastMileFulfilmentAwaitingGeocoding` with the missing legs. A
+ *     client-specific orchestrator (e.g. Pinpoint) subscribes to that
+ *     event and is expected to drive the geocoding flow.
  *
- * Identity: the route handler binds a `Scope.fromParentEvent(...)` before
- * invoking this use case, so `ScopeStore.require()` resolves to a
- * service-principal scope chained to the upstream event's correlation.
- *
- * `R = UnitOfWork | DispatchJobBroker` — no `AggregateRegistry` because v1
- * doesn't mutate the fulfilment (reaction-bookkeeping update deferred).
+ * `R = UnitOfWork | DispatchJobBroker | AggregateRegistry` — the
+ * AggregateRegistry tag is required for the awaiting branch which writes
+ * the fulfilment aggregate.
  */
 export class HandleLastMileFulfilmentCreatedUseCase {
   constructor(
@@ -60,9 +76,9 @@ export class HandleLastMileFulfilmentCreatedUseCase {
   execute = (
     input: HandleLastMileFulfilmentCreatedInput,
   ): Effect.Effect<
-    Sealed<LastMileFulfilmentShipmentRequested>,
+    ReactorOutcome,
     UseCaseError,
-    UnitOfWork | DispatchJobBroker
+    UnitOfWork | DispatchJobBroker | AggregateRegistry
   > => {
     const fulfilments = this.fulfilments;
     const { publicBaseUrl, dispatchPoolCode } = this.config;
@@ -82,7 +98,7 @@ export class HandleLastMileFulfilmentCreatedUseCase {
       const tenantId = asTenantId(input.tenantId);
       const fulfilmentId = asLastMileFulfilmentId(input.fulfilmentId);
 
-      // 2. Idempotency / referential guard. The fulfilment must still exist.
+      // 2. Idempotency / referential guard.
       const fulfilment = yield* Effect.tryPromise({
         try: () => fulfilments.findById(tenantId, fulfilmentId),
         catch: (cause) =>
@@ -100,24 +116,29 @@ export class HandleLastMileFulfilmentCreatedUseCase {
         );
       }
 
-      // 3. Geo precondition — needs both ends. Schema currently makes geo
-      //    required so this is defensive; when geo becomes optional, the
-      //    "not ready" branch will emit a different event + dispatch a
-      //    geocoding job instead of failing.
-      if (!fulfilment.collection.geo || !fulfilment.dropOff.geo) {
-        return yield* Effect.fail(
-          new BusinessRuleViolation({
-            code: 'LOCATIONS_NOT_GEOCODED',
-            message:
-              'Fulfilment locations are not geocoded; shipment creation deferred.',
-            details: { fulfilmentId: input.fulfilmentId },
-          }),
+      // 3. Branch on geo readiness.
+      const missingLegs: ('collection' | 'dropOff')[] = [];
+      if (!fulfilment.collection.geo) missingLegs.push('collection');
+      if (!fulfilment.dropOff.geo) missingLegs.push('dropOff');
+
+      if (missingLegs.length > 0) {
+        // Awaiting branch: park the fulfilment + emit the awaiting event.
+        const now = new Date();
+        const updated = LastMileFulfilment.scheduleReaction(
+          fulfilment,
+          AWAITING_GEOCODING_EVENT_TYPE,
+          input.handledEventId ?? scope.executionId,
+          now,
         );
+        const awaitingEvent = new LastMileFulfilmentAwaitingGeocoding(scope, {
+          fulfilmentId: fulfilment.id,
+          tenantId: fulfilment.tenantId,
+          missingLegs,
+        });
+        return yield* commitAggregate(updated, awaitingEvent, input);
       }
 
-      // 4. Build the shipment command from the fulfilment (snapshotted into
-      //    the dispatch job's payload — the shipment owns this copy from
-      //    here on).
+      // 4. Happy path: dispatch shipment creation.
       const shipmentCommand: CreateLastMileShipmentCommand = {
         tenantId: fulfilment.tenantId,
         fulfilmentId: fulfilment.id,
@@ -145,21 +166,17 @@ export class HandleLastMileFulfilmentCreatedUseCase {
         .withMessageGroup(`platform.fulfilment.${fulfilment.id}`)
         .withDataOnly(true);
 
-      // 5. Emit the dispatch job FIRST so we have its ID for the audit event.
       const broker = yield* DispatchJobBroker;
       const dispatchJobId = yield* broker.emit(dispatchJob);
 
-      // 6. Emit the audit event recording what the reactor decided. Both
-      //    writes are in the same Drizzle tx via TransactionStore — if the
-      //    event emission fails, the dispatch job's outbox row rolls back too.
-      const event = new LastMileFulfilmentShipmentRequested(scope, {
+      const requestedEvent = new LastMileFulfilmentShipmentRequested(scope, {
         fulfilmentId: fulfilment.id,
         tenantId: fulfilment.tenantId,
         dispatchJobId,
         targetUrl,
       });
       const uow = yield* UnitOfWork;
-      return yield* uow.emitEvent(event, input);
+      return yield* uow.emitEvent(requestedEvent, input);
     });
   };
 }

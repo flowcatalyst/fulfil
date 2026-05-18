@@ -19,6 +19,7 @@ import { LastMileShipmentCreatedEventDataSchema } from './api/schemas/lastmile/e
 import { LastMileFulfilmentShipmentRequestedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-requested.schema.js';
 import { LastMileFulfilmentShipmentLinkedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-linked.schema.js';
 import { LastMileShipmentReadyEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-ready.schema.js';
+import { LastMileFulfilmentAwaitingGeocodingEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-awaiting-geocoding.schema.js';
 
 async function buildServer() {
   const server = Fastify({
@@ -70,6 +71,7 @@ async function buildServer() {
   server.addSchema(LastMileFulfilmentShipmentRequestedEventDataSchema);
   server.addSchema(LastMileFulfilmentShipmentLinkedEventDataSchema);
   server.addSchema(LastMileShipmentReadyEventDataSchema);
+  server.addSchema(LastMileFulfilmentAwaitingGeocodingEventDataSchema);
 
   await server.register(fastifySwagger, {
     openapi: {
