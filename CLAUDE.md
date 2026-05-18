@@ -452,63 +452,84 @@ return yield* uow.emitEvent(new HeartbeatRecorded(scope, data), command);
 
 **Reading from another aggregate inside a use case.** Inject the other repository in the constructor. Use `Effect.tryPromise` to call it. Cross-aggregate invariants stay in the calling use case — repositories don't enforce them.
 
-### Reactors (inbound webhook → use case)
+### Processes (inbound webhook → decider → dispatch jobs)
 
-Cross-aggregate workflows in Fulfil are choreographed via events, not in-process calls. When aggregate A's event must trigger work on aggregate B, the work goes through a *reactor*: a Fastify webhook route that FlowCatalyst calls when the originating event is published.
+Cross-aggregate workflows in Fulfil are modelled as **processes**: one webhook per business process, subscribed to *all* the event types that drive it. The process webhook is a **decider** — it inspects each inbound event, decides what work to do, and emits one dispatch job per action. Each action runs in its own transaction at a separate route, retried independently.
 
-**Anatomy of a reactor**:
+This is the inverse of the old "one webhook per event" reactor pattern. It matches FlowCatalyst's first-class `Processes` resource (Mermaid documentation of how events / dispatch jobs / aggregates compose).
+
+**The rule** — when to dispatch vs inline:
+- **Dispatch a job** when the action writes a *different* aggregate than the one whose event triggered it, or when the action is operationally independent (notifications, integrations, fan-out).
+- **Stay inline** when the action is a single write to the *same* aggregate whose event you're processing — e.g. `FulfilmentCreated` event → set `fulfilment.reaction.awaitingEventType` is one aggregate, one tx. Inline preserves the invariant that the emitted event truthfully reflects committed aggregate state.
+
+**Anatomy of a process** (LastMile fulfilment as the running example):
 
 ```
-domain/<subdomain>/events/<x>-event.ts                   # aggregate A's event
-operations/handle-<x>/handle-<x>.command.ts              # minimal inbound input type
-operations/handle-<x>/handle-<x>.use-case.ts             # Effect use case
-api/schemas/reactors/<x>.endpoint.ts                     # TypeBox body + response
-api/routes/reactors/<x>.route.ts                         # Fastify webhook
-flowcatalyst/<subdomain>/subscriptions.ts                # SubscriptionDefinition pointing at the route
+domain/<subdomain>/events/                         # all events the process handles + emits
+operations/handle-<event-name>/                    # per-event handler use cases (the deciders)
+operations/<action-name>/                          # per-action use cases (the dispatch targets)
+api/routes/processes/<process-name>.route.ts       # the consolidated process webhook
+api/routes/<aggregate>/                            # the action / dispatch-target routes
+flowcatalyst/<subdomain>/subscriptions.ts          # ONE subscription per process, multiple eventTypes[]
 ```
 
-**Reactor route — what differs from a user-facing route**:
-
-The framework's Fastify plugin only sets a `Scope` when `extractRequestToken` returns one. Webhooks have no OIDC token, so the reactor route binds its own `Scope` using `Scope.fromParentEvent(parent, identity)`. The parent's `correlationId` and `eventId` come from FlowCatalyst headers (`x-fc-correlation-id`, `x-fc-event-id`); the identity is a service-principal like `'fulfil:reactor:<name>'`.
+**The process webhook** (routes by `x-fc-event-type` header):
 
 ```typescript
-const baseScope = Scope.fromParentEvent(
-  { correlationId, eventId },
-  { principalId: REACTOR_PRINCIPAL_ID },
-);
-const scope = { ...baseScope, tenant: { tenantId: request.body.tenantId } };
+// /processes/last-mile-fulfilment.route.ts
+fastify.post('/processes/last-mile-fulfilment', { schema }, async (request, reply) => {
+  const eventType = readHeader(request.headers['x-fc-event-type']);
+  const scope = resolveScope(request, { fallbackPrincipalId, bodyTenantId });
 
-const result = await ScopeStore.run(scope, () =>
-  appContext.runWrite(useCase.execute(input), scope),
-);
+  return ScopeStore.run(scope, async () => {
+    switch (eventType) {
+      case 'fulfil:lastmile:fulfilment:created':
+        return runFulfilmentCreated(appContext, request.body, scope, reply);
+      case 'fulfil:lastmile:shipment:created':
+        return runShipmentCreated(appContext, request.body, scope, reply);
+      default:
+        return reply.code(400).send({ /* unsupported eventType */ });
+    }
+  });
+});
 ```
 
-Subscriptions are sync'd with `dataOnly: true` — the webhook body is the event's `data` payload (no envelope). Platform metadata rides on `x-fc-*` headers.
+Each branch calls a per-event handler use case (`HandleLastMileFulfilmentCreated` / `HandleLastMileShipmentCreated`) via `appContext.runWrite(...)`. The handler decides what to do; cross-aggregate work goes out as dispatch jobs via `DispatchJobBroker.emit(...)`.
 
-**Multi-branch reactors.** A reactor may return a *union* of sealed events — e.g. `HandleLastMileFulfilmentCreated` returns `Sealed<ShipmentRequested> | Sealed<AwaitingGeocoding>` depending on whether geo is set. The webhook response is a TypeBox discriminated union (`status: 'shipment-requested' | 'awaiting-geocoding'`); the route handler narrows via `event instanceof <EventClass>` to pick the right shape. The use case's R widens accordingly (the awaiting branch writes the fulfilment aggregate, so `AggregateRegistry` joins `UnitOfWork | DispatchJobBroker`).
+**Subscriptions are bundled per process** — one `SubscriptionDefinition` with multiple `eventTypes`:
 
-**HMAC verification.** Every `/reactors/*` request is verified by `flowcatalystWebhookAuthHook` (registered as a `preHandler` inside `reactorRoutesPlugin`):
+```typescript
+{
+  code: 'last-mile-fulfilment-process',
+  target: `${publicBaseUrl}/processes/last-mile-fulfilment`,
+  eventTypes: [
+    { eventTypeCode: 'fulfil:lastmile:fulfilment:created' },
+    { eventTypeCode: 'fulfil:lastmile:shipment:created' },
+  ],
+  dispatchPoolCode, mode: 'BLOCK_ON_ERROR', dataOnly: true,
+}
+```
+
+**Webhook scope**: framework Fastify plugin only sets a `Scope` when `extractRequestToken` returns one. Webhooks have no OIDC token, so the process route uses `resolveScope(request, ...)` which constructs `Scope.fromParentEvent` from `x-fc-correlation-id` + `x-fc-event-id` headers (with a service-principal identity like `'fulfil:process:last-mile-fulfilment'`). Subscription's `dataOnly: true` means the body is the event's `data` payload only.
+
+**Multi-branch handlers.** A handler may return a *union* of sealed events — e.g. `HandleLastMileFulfilmentCreated` returns `Sealed<ShipmentRequested> | Sealed<AwaitingGeocoding>` depending on geo readiness. The webhook response is a TypeBox discriminated union (`status: 'shipment-requested' | 'awaiting-geocoding' | …`); the route narrows via `event instanceof <EventClass>` to pick the right shape. The handler's `R` widens to include whatever Tags it actually uses (`UnitOfWork | DispatchJobBroker | AggregateRegistry`).
+
+**HMAC verification.** Every `/processes/*` request and every dispatch-target route (e.g. `/shipments`, `/fulfilments/:id/link-shipment`) is verified by `flowcatalystWebhookAuthHook`:
 - Signing scheme: HMAC-SHA256 over `${X-FlowCatalyst-Timestamp}${rawBody}`, hex-encoded, sent as `X-FlowCatalyst-Signature`. Mirrors the Laravel SDK's `WebhookValidator`.
 - Tolerance: 300s past, 60s future grace.
 - Constant-time comparison via `timingSafeEqual`.
-- Failure → HTTP 401 with the failing code (`MISSING_SIGNATURE`, `TIMESTAMP_EXPIRED`, `SIGNATURE_MISMATCH`, etc.).
+- Failure → HTTP 401 with the failing code.
 - Raw body comes from the JSON content-type parser registered in `server.ts`, which stashes `request.rawBody` before parsing.
 - Dev-mode bypass: when `FLOWCATALYST_SIGNING_SECRET` is unset, the hook logs a per-request warning and skips. **Never deploy without setting the secret** — production should fail closed.
 
-**Reactor use case — what it does**:
+**Wiring a new process or event end-to-end**:
 
-The use case is a normal Effect use case. The only differences from a user-facing use case:
-
-- It typically uses `uow.emitEvent(...)` (not `commitAggregate`) — most reactors decide + dispatch, they don't write aggregate state. When they DO update the originating aggregate (e.g. setting `reaction.awaitingEventType`), use `commitAggregate` as usual.
-- `R = UnitOfWork | DispatchJobBroker` typically — yield `DispatchJobBroker` to emit the cross-aggregate dispatch job.
-- It loads the aggregate from the repository rather than trusting the event payload — the event may be stale by the time the dispatch arrives.
-
-**Wiring a reactor end-to-end**:
-
-1. **Sync definitions**: add the event type (if not already present) to `flowcatalyst/<subdomain>/events.ts`, add a `SubscriptionDefinition` to `flowcatalyst/<subdomain>/subscriptions.ts` pointing at the reactor URL with `dataOnly: true` and an appropriate `mode` (`BLOCK_ON_ERROR` for ordering-sensitive reactions).
-2. **Route**: register the webhook in `api/routes/reactors/index.ts` (added to `reactorRoutesPlugin`).
-3. **Use case + event**: standard Effect use case shape; emit any new event types via `uow.emitEvent` and dispatch jobs via `DispatchJobBroker.emit`.
-4. **Run `pnpm flowcatalyst:sync`** in CI/CD so the subscription registers with the platform.
+1. **Decide what the action does.** If it writes a different aggregate or is operationally independent → it gets its own use case + dispatch-target route. If it's a single write to the same aggregate the event came from → it can live inline in the handler.
+2. **Sync definitions**: add any new event type to `flowcatalyst/<subdomain>/events.ts`. Add the eventTypeCode to the existing process subscription's `eventTypes` array — don't add a new subscription for each event.
+3. **Per-event handler use case**: standard Effect use case shape returning a sealed event (or a union of sealed events). For each cross-aggregate action, yield `DispatchJobBroker.emit(CreateDispatchJobDto.create(source, code, `${publicBaseUrl}/<action-path>`, payload, dispatchPoolCode)...)`.
+4. **Dispatch-target route + use case**: standard user-facing-style route + Effect use case. Add HMAC `preHandler` to the route options (or register inside a plugin scope that has the hook).
+5. **Process webhook switch**: add a new `case` for the event type, calling the handler.
+6. **Run `pnpm flowcatalyst:sync`** in CI/CD so the subscription's updated `eventTypes` list registers with the platform.
 
 ### Tagged Errors
 

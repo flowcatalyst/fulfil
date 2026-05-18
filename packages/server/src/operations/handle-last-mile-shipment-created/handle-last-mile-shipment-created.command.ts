@@ -1,14 +1,14 @@
 /**
- * Input for the shipment-created reactor.
+ * Input for the shipment-created process handler.
  *
- * Carries only what the reactor needs to look up the shipment + headers
- * carry the rest. The reactor reads everything else (fulfilmentId, parcel/
- * line IDs, status) from the freshly-loaded shipment aggregate — never
- * trusting the inbound payload for state that the local DB owns.
+ * Carries just enough to (a) construct the link-shipment dispatch URL and
+ * (b) record an audit event. The downstream dispatch target loads the
+ * shipment + fulfilment from the repository itself.
  */
 export interface HandleLastMileShipmentCreatedInput {
   readonly shipmentId: string;
   readonly tenantId: string;
-  /** Originating event ID (from `x-fc-event-id`) — used for reaction idempotency. */
-  readonly handledEventId: string;
+  readonly fulfilmentId: string;
+  /** Originating event ID (from `x-fc-event-id`) — propagated for downstream idempotency. */
+  readonly handledEventId?: string;
 }

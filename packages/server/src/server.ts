@@ -13,11 +13,12 @@ import { createAppContext } from './app-context.js';
 import { registerTenantScopeHook } from './api/hooks/tenant-scope.hook.js';
 import { lastMileFulfilmentRoutesPlugin } from './api/routes/last-mile-fulfilments/index.js';
 import { lastMileShipmentRoutesPlugin } from './api/routes/last-mile-shipments/index.js';
-import { reactorRoutesPlugin } from './api/routes/reactors/index.js';
+import { processRoutesPlugin } from './api/routes/processes/index.js';
 import { LastMileFulfilmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-created.schema.js';
 import { LastMileShipmentCreatedEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-created.schema.js';
 import { LastMileFulfilmentShipmentRequestedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-requested.schema.js';
 import { LastMileFulfilmentShipmentLinkedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-linked.schema.js';
+import { LastMileFulfilmentShipmentLinkDispatchedEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-shipment-link-dispatched.schema.js';
 import { LastMileShipmentReadyEventDataSchema } from './api/schemas/lastmile/events/last-mile-shipment-ready.schema.js';
 import { LastMileFulfilmentAwaitingGeocodingEventDataSchema } from './api/schemas/lastmile/events/last-mile-fulfilment-awaiting-geocoding.schema.js';
 
@@ -70,6 +71,7 @@ async function buildServer() {
   server.addSchema(LastMileShipmentCreatedEventDataSchema);
   server.addSchema(LastMileFulfilmentShipmentRequestedEventDataSchema);
   server.addSchema(LastMileFulfilmentShipmentLinkedEventDataSchema);
+  server.addSchema(LastMileFulfilmentShipmentLinkDispatchedEventDataSchema);
   server.addSchema(LastMileShipmentReadyEventDataSchema);
   server.addSchema(LastMileFulfilmentAwaitingGeocodingEventDataSchema);
 
@@ -86,9 +88,9 @@ async function buildServer() {
             'Last-mile fulfilment aggregates and shipments. One fulfilment per upstream source note; shipments are created by planning.',
         },
         {
-          name: 'Reactors',
+          name: 'Processes',
           description:
-            'Inbound webhooks called by FlowCatalyst when events fire. Each reactor reacts to one event type.',
+            'Inbound webhooks for business processes. One webhook per process, subscribed to multiple event types; the webhook is a decider and emits dispatch jobs for each action.',
         },
       ],
     },
@@ -108,15 +110,19 @@ async function buildServer() {
       process.env['FULFIL_DISPATCH_POOL'] ?? 'fulfil-default',
   });
 
-  // Domain + reactor routes.
-  await server.register(lastMileFulfilmentRoutesPlugin, { appContext });
-  await server.register(lastMileShipmentRoutesPlugin, { appContext });
-  await server.register(reactorRoutesPlugin, {
+  // Webhook auth shared by every HMAC-verified route (process webhooks +
+  // dispatch-target routes).
+  const webhookAuth = {
+    signingSecret: process.env['FLOWCATALYST_SIGNING_SECRET'],
+  } as const;
+
+  // Domain + process routes.
+  await server.register(lastMileFulfilmentRoutesPlugin, {
     appContext,
-    webhookAuth: {
-      signingSecret: process.env['FLOWCATALYST_SIGNING_SECRET'],
-    },
+    webhookAuth,
   });
+  await server.register(lastMileShipmentRoutesPlugin, { appContext });
+  await server.register(processRoutesPlugin, { appContext, webhookAuth });
 
   // Health check.
   server.get('/health', async () => ({ status: 'ok' }));

@@ -1,74 +1,59 @@
 import { Effect } from 'effect';
+import { CreateDispatchJobDto } from '@flowcatalyst/sdk';
 import {
-  BusinessRuleViolation,
   ScopeStore,
   UnitOfWork,
   ValidationError,
   type Sealed,
   type UseCaseError,
 } from '@fulfil/framework';
+import type { LinkShipmentToFulfilmentCommand } from '@fulfil/shared';
 
-import {
-  AggregateRegistry,
-  commitAggregate,
-} from '../../infrastructure/unit-of-work.js';
+import { DispatchJobBroker } from '../../infrastructure/unit-of-work.js';
 import {
   asLastMileFulfilmentId,
-  asParcelId,
-  asPromisedLineId,
   asShipmentId,
   asTenantId,
 } from '../../domain/lastmile/ids.js';
-import { LastMileFulfilment } from '../../domain/lastmile/last-mile-fulfilment.js';
-import type { LastMileFulfilmentRepository } from '../../domain/lastmile/last-mile-fulfilment.repository.js';
-import type { LastMileShipmentRepository } from '../../domain/lastmile/last-mile-shipment.repository.js';
-import type { LinkedShipment } from '../../domain/lastmile/state.js';
-import { LastMileFulfilmentShipmentLinked } from '../../domain/lastmile/events/last-mile-fulfilment-shipment-linked.event.js';
+import { LastMileFulfilmentShipmentLinkDispatched } from '../../domain/lastmile/events/last-mile-fulfilment-shipment-link-dispatched.event.js';
 
 import type { HandleLastMileShipmentCreatedInput } from './handle-last-mile-shipment-created.command.js';
 
+export interface HandleLastMileShipmentCreatedConfig {
+  /** Used to construct the dispatch job's `targetUrl`. */
+  readonly publicBaseUrl: string;
+  /** Dispatch-pool code Fulfil's internal dispatch jobs ride on. */
+  readonly dispatchPoolCode: string;
+}
+
 /**
- * Reactor for `LastMileShipmentCreated`.
+ * Process handler for `LastMileShipmentCreated`.
  *
- * Closes the fulfilment ↔ shipment loop opened by
- * `HandleLastMileFulfilmentCreated`:
- *  - Load the just-created shipment (source of truth for parcel/line IDs +
- *    status — don't trust the inbound payload for state the DB owns).
- *  - Load the parent fulfilment.
- *  - Append a `LinkedShipment` and clear `reaction.awaitingEventType`.
- *  - Emit `LastMileFulfilmentShipmentLinked` so downstream consumers (read
- *    models, dashboards, sweepers) can observe the linkage.
+ * Pure decider: the work of appending the shipment onto the fulfilment's
+ * `linkedShipments` lives in `LinkShipmentToFulfilmentUseCase` at the
+ * `POST /fulfilments/:id/link-shipment` dispatch target. This handler
+ * emits one dispatch job for that action and an audit event for the
+ * decision itself.
  *
- * Idempotency: if the shipment is already linked (retry / duplicate
- * delivery), the reactor returns a no-op success path via `Effect.fail` on a
- * benign business-rule code that the route maps to 200/duplicate-skipped.
- *
- * Actually — we use a different approach: emit the event with a `noop` marker
- * if already linked. For v1 we keep it simple: fail with a
- * `BusinessRuleViolation` whose code marks duplicates so the route can decide
- * to 200 it. (Not implemented in v1; FlowCatalyst's deduplicationId on the
- * dispatch job is the primary defense.)
+ * Why dispatch instead of inline: the fulfilment is a *different*
+ * aggregate from the shipment whose event we're handling. Per the process
+ * pattern, cross-aggregate work goes through dispatch jobs so it's
+ * independently retryable from anything else the process does.
  */
 export class HandleLastMileShipmentCreatedUseCase {
-  constructor(
-    private readonly fulfilments: LastMileFulfilmentRepository,
-    private readonly shipments: LastMileShipmentRepository,
-  ) {}
+  constructor(private readonly config: HandleLastMileShipmentCreatedConfig) {}
 
   execute = (
     input: HandleLastMileShipmentCreatedInput,
   ): Effect.Effect<
-    Sealed<LastMileFulfilmentShipmentLinked>,
+    Sealed<LastMileFulfilmentShipmentLinkDispatched>,
     UseCaseError,
-    UnitOfWork | AggregateRegistry
+    UnitOfWork | DispatchJobBroker
   > => {
-    const fulfilments = this.fulfilments;
-    const shipments = this.shipments;
-
+    const { publicBaseUrl, dispatchPoolCode } = this.config;
     return Effect.gen(function* () {
       const scope = ScopeStore.require();
 
-      // 1. Tenant guard.
       if (!scope.tenant || scope.tenant.tenantId !== input.tenantId) {
         return yield* Effect.fail(
           new ValidationError({
@@ -77,88 +62,51 @@ export class HandleLastMileShipmentCreatedUseCase {
           }),
         );
       }
-      const tenantId = asTenantId(input.tenantId);
-      const shipmentId = asShipmentId(input.shipmentId);
 
-      // 2. Load the shipment — source of truth for parcel/line IDs + status.
-      const shipment = yield* Effect.tryPromise({
-        try: () => shipments.findById(tenantId, shipmentId),
-        catch: (cause) =>
-          new BusinessRuleViolation({
-            code: 'REPO_READ_FAILED',
-            message: cause instanceof Error ? cause.message : String(cause),
-          }),
-      });
-      if (!shipment) {
+      // The shipment-created payload doesn't carry fulfilmentId directly
+      // in this slim handler. We need it to construct the URL — but it's
+      // not in `HandleLastMileShipmentCreatedInput`. Add it.
+      if (!input.fulfilmentId) {
         return yield* Effect.fail(
           new ValidationError({
-            code: 'SHIPMENT_NOT_FOUND',
-            message: `Shipment ${input.shipmentId} not found in tenant ${input.tenantId}.`,
+            code: 'FULFILMENT_ID_MISSING',
+            message:
+              'shipment:created event must carry fulfilmentId on the data payload.',
           }),
         );
       }
 
-      // 3. Load the parent fulfilment.
-      const fulfilment = yield* Effect.tryPromise({
-        try: () =>
-          fulfilments.findById(
-            tenantId,
-            asLastMileFulfilmentId(shipment.fulfilmentId),
-          ),
-        catch: (cause) =>
-          new BusinessRuleViolation({
-            code: 'REPO_READ_FAILED',
-            message: cause instanceof Error ? cause.message : String(cause),
-          }),
-      });
-      if (!fulfilment) {
-        return yield* Effect.fail(
-          new ValidationError({
-            code: 'FULFILMENT_NOT_FOUND',
-            message: `Parent fulfilment ${shipment.fulfilmentId} not found in tenant ${input.tenantId}.`,
-          }),
-        );
-      }
-
-      // 4. Idempotency — if the shipment is already linked, surface a
-      //    business-rule violation so the route can map it to a 200 (event
-      //    accepted, no work to do).
-      if (LastMileFulfilment.isShipmentLinked(fulfilment, shipmentId)) {
-        return yield* Effect.fail(
-          new BusinessRuleViolation({
-            code: 'SHIPMENT_ALREADY_LINKED',
-            message: `Shipment ${input.shipmentId} is already linked to fulfilment ${fulfilment.id}.`,
-            details: { fulfilmentId: fulfilment.id, shipmentId: shipment.id },
-          }),
-        );
-      }
-
-      // 5. Build the LinkedShipment value object and the updated aggregate.
-      const linkedShipment: LinkedShipment = {
-        shipmentId: shipment.id,
-        parcelIds: shipment.parcels.map((p) => asParcelId(p.parcelId)),
-        lineIds: shipment.lines.map((l) => asPromisedLineId(l.lineId)),
-        status: shipment.status,
-        outcome: null,
-        linkedAt: new Date(),
+      const linkCommand: LinkShipmentToFulfilmentCommand = {
+        shipmentId: input.shipmentId,
+        tenantId: input.tenantId,
+        ...(input.handledEventId && { handledEventId: input.handledEventId }),
       };
-      const updated = LastMileFulfilment.linkShipment(
-        fulfilment,
-        linkedShipment,
-        input.handledEventId,
-        linkedShipment.linkedAt,
-      );
+      const targetUrl = `${publicBaseUrl}/fulfilments/${input.fulfilmentId}/link-shipment`;
 
-      // 6. Build the event + atomic commit.
-      const event = new LastMileFulfilmentShipmentLinked(scope, {
-        fulfilmentId: updated.id,
-        tenantId: updated.tenantId,
-        shipmentId: shipment.id,
-        shipmentStatus: shipment.status,
-        linkedShipmentCount: updated.linkedShipments.length,
+      const dispatchJob = CreateDispatchJobDto.create(
+        'fulfil:lastmile',
+        'fulfil:lastmile:fulfilment:link-shipment',
+        targetUrl,
+        JSON.stringify(linkCommand),
+        dispatchPoolCode,
+      )
+        .withCorrelationId(scope.correlationId)
+        .withSubject(`platform.fulfilment.${input.fulfilmentId}`)
+        .withMessageGroup(`platform.fulfilment.${input.fulfilmentId}`)
+        .withDataOnly(true);
+
+      const broker = yield* DispatchJobBroker;
+      const dispatchJobId = yield* broker.emit(dispatchJob);
+
+      const event = new LastMileFulfilmentShipmentLinkDispatched(scope, {
+        fulfilmentId: asLastMileFulfilmentId(input.fulfilmentId),
+        tenantId: asTenantId(input.tenantId),
+        shipmentId: asShipmentId(input.shipmentId),
+        dispatchJobId,
+        targetUrl,
       });
-
-      return yield* commitAggregate(updated, event, input);
+      const uow = yield* UnitOfWork;
+      return yield* uow.emitEvent(event, input);
     });
   };
 }

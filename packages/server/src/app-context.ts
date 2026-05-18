@@ -39,6 +39,7 @@ import { CreateLastMileFulfilmentUseCase } from './operations/create-last-mile-f
 import { CreateLastMileShipmentUseCase } from './operations/create-last-mile-shipment/create-last-mile-shipment.use-case.js';
 import { HandleLastMileFulfilmentCreatedUseCase } from './operations/handle-last-mile-fulfilment-created/handle-last-mile-fulfilment-created.use-case.js';
 import { HandleLastMileShipmentCreatedUseCase } from './operations/handle-last-mile-shipment-created/handle-last-mile-shipment-created.use-case.js';
+import { LinkShipmentToFulfilmentUseCase } from './operations/link-shipment-to-fulfilment/link-shipment-to-fulfilment.use-case.js';
 import { MarkShipmentReadyUseCase } from './operations/mark-shipment-ready/mark-shipment-ready.use-case.js';
 
 /**
@@ -66,6 +67,7 @@ export interface AppContext {
     readonly createLastMileShipment: CreateLastMileShipmentUseCase;
     readonly handleLastMileFulfilmentCreated: HandleLastMileFulfilmentCreatedUseCase;
     readonly handleLastMileShipmentCreated: HandleLastMileShipmentCreatedUseCase;
+    readonly linkShipmentToFulfilment: LinkShipmentToFulfilmentUseCase;
     readonly markShipmentReady: MarkShipmentReadyUseCase;
   };
   /**
@@ -162,7 +164,11 @@ export function createAppContext(config: AppContextConfig): AppContext {
           publicBaseUrl,
           dispatchPoolCode,
         }),
-      handleLastMileShipmentCreated: new HandleLastMileShipmentCreatedUseCase(
+      handleLastMileShipmentCreated: new HandleLastMileShipmentCreatedUseCase({
+        publicBaseUrl,
+        dispatchPoolCode,
+      }),
+      linkShipmentToFulfilment: new LinkShipmentToFulfilmentUseCase(
         lastMileFulfilmentRepo,
         lastMileShipmentRepo,
       ),
