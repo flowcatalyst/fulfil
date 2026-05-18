@@ -485,6 +485,14 @@ const result = await ScopeStore.run(scope, () =>
 
 Subscriptions are sync'd with `dataOnly: true` — the webhook body is the event's `data` payload (no envelope). Platform metadata rides on `x-fc-*` headers.
 
+**HMAC verification.** Every `/reactors/*` request is verified by `flowcatalystWebhookAuthHook` (registered as a `preHandler` inside `reactorRoutesPlugin`):
+- Signing scheme: HMAC-SHA256 over `${X-FlowCatalyst-Timestamp}${rawBody}`, hex-encoded, sent as `X-FlowCatalyst-Signature`. Mirrors the Laravel SDK's `WebhookValidator`.
+- Tolerance: 300s past, 60s future grace.
+- Constant-time comparison via `timingSafeEqual`.
+- Failure → HTTP 401 with the failing code (`MISSING_SIGNATURE`, `TIMESTAMP_EXPIRED`, `SIGNATURE_MISMATCH`, etc.).
+- Raw body comes from the JSON content-type parser registered in `server.ts`, which stashes `request.rawBody` before parsing.
+- Dev-mode bypass: when `FLOWCATALYST_SIGNING_SECRET` is unset, the hook logs a per-request warning and skips. **Never deploy without setting the secret** — production should fail closed.
+
 **Reactor use case — what it does**:
 
 The use case is a normal Effect use case. The only differences from a user-facing use case:
@@ -579,6 +587,8 @@ flowcatalyst/
 ```
 
 Required env for the sync script: `FLOWCATALYST_URL`, `FLOWCATALYST_CLIENT_ID`, `FLOWCATALYST_CLIENT_SECRET`, `FULFIL_PUBLIC_BASE_URL`. Optional: `FULFIL_DISPATCH_POOL` (default `fulfil-default`), `FLOWCATALYST_REMOVE_UNLISTED=true` to clean up SDK-sourced rows missing from the current set.
+
+Required env on the **running server**: `FLOWCATALYST_SIGNING_SECRET` — shared secret used to verify inbound webhook signatures. Same secret on Fulfil and on the FlowCatalyst connection that signs deliveries. Leaving it unset disables verification (dev-mode bypass with a warning per request).
 
 Event type codes follow `<app>:<subdomain>:<aggregate>:<event>` lowercase + past-tense (`fulfil:lastmile:fulfilment:created`). Permissions follow `<domain>:<area>:<resource>:<action>` (`fulfil:lastmile:fulfilment:create`). The TS-side `LastMilePermission` catalog stores the authorize-check tokens used by use cases; the platform-side names sync'd here are separate strings, intentionally — real authz binding (token → role → permission check) lives in a future slice.
 

@@ -27,6 +27,27 @@ async function buildServer() {
     },
   }).withTypeProvider<TypeBoxTypeProvider>();
 
+  // Capture raw JSON body on every request — the FlowCatalyst webhook auth
+  // hook needs it for HMAC verification. Replaces Fastify's default JSON
+  // parser; cost is one extra Buffer→string conversion per request.
+  server.addContentTypeParser(
+    'application/json',
+    { parseAs: 'buffer' },
+    (req, body, done) => {
+      const text = body.toString('utf8');
+      req.rawBody = text;
+      if (text.length === 0) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(text));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
   // Framework plugin: scope propagation, SLA tracking, Prometheus metrics.
   await server.register(frameworkFastifyPlugin, {
     slaTracker: createSlaTracker([]),
@@ -88,7 +109,12 @@ async function buildServer() {
   // Domain + reactor routes.
   await server.register(lastMileFulfilmentRoutesPlugin, { appContext });
   await server.register(lastMileShipmentRoutesPlugin, { appContext });
-  await server.register(reactorRoutesPlugin, { appContext });
+  await server.register(reactorRoutesPlugin, {
+    appContext,
+    webhookAuth: {
+      signingSecret: process.env['FLOWCATALYST_SIGNING_SECRET'],
+    },
+  });
 
   // Health check.
   server.get('/health', async () => ({ status: 'ok' }));
